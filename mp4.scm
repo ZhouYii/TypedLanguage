@@ -24,8 +24,8 @@
     (expression ("letrec" (arbno identifier "=" expression) "in" expression) letrec-exp)
     (expression ("proc" "(" (arbno identifier) ")" expression) proc-exp)
     (expression ( "(" expression (arbno expression) ")") exp-exp)
-    (expression ("newref" "(" expression ")") newRef-exp)
-    (expression ("set" identifier expression)set-exp)
+    ;(expression ("newref" "(" expression ")") newRef-exp)
+    ;(expression ("set" identifier expression)set-exp)
     (expression ("begin" expression (arbno ";" expression) "end")begin-exp)
     (expression ("if" expression "then" expression "else" expression)if-exp)
     (expression (arith-op "(" expression (arbno "," expression) ")")arith-exp)
@@ -160,9 +160,152 @@
   (let ([counter 0])
     (begin (string->symbol (string-append "t" (number->string counter)))
            (set! counter (+ 1 counter)))))
-    
+
 
 ;=====================================type-of-exp========================================
+; For proc expression
+
+(define (zip . xss) (apply map list xss))
+
+(define get-args-placeholders
+  (lambda (args-list)
+    (map tvar-type (map get-var-id args-list))))
+
+(define get-var-id
+  (lambda x
+    (string->symbol (string-append "t" (number->string (global-counter))))))
+
+(define global-counter
+  (let ((count 0))
+    (lambda ()
+      (set! count (+ count 1))
+      count)))
+
+(define filter-id
+  (lambda (id-expr-pair id)
+    (if (equal? (car id-expr-pair) id)
+        '()
+        '(id-expr-pair))))
+
+(define mapping-invalidate-key 
+  (lambda (mapping target-id)
+    (let [(front (car mapping))
+          (rest (cdr mapping))]
+      (if (null? rest)
+          (filter-id front target-id)
+          (append (filter-id front target-id) (mapping-invalidate-key rest target-id))))))
+(define mapping-invalidate-all-keys 
+  (lambda (mapping key-list)
+    (if (null? key-list)
+        mapping
+        (let [(new-mapping (mapping-invalidate-key (car key-list)))]
+          (mapping-invalidate-all-keys new-mapping (cdr key-list))))))
+
+; Replace instantiated identifiers : For 1 to n, replace in expr_i, invalidate identifier_i in mapping structure
+; Return the modified id-var mapping structure in a tuple : (all replaced exprs, final mapping)
+(define let-recursive-replacement
+  (lambda (var-exp-pairs id-mappings replaced-exps)
+    (if (null? var-exp-pairs)
+        (replaced-exps id-mappings)
+        (let* [(front (car var-exp-pairs))
+              (rest (cdr var-exp-pairs))
+              (bind-id (car front))
+              (bind-expr (cdr front))
+              (new-expr (replace-uninstantiated-vars bind-expr id-mappings))
+              (new-mapping (mapping-invalidate-key id-mappings bind-id))]
+          (let-recursive-replacement rest new-mapping (append replaced-exps (list new-expr)))))))
+
+(define let-replace
+  (lambda (vars exps id-mappings)
+    (let* [(var-exp-pairs (zip vars exps))
+           (new-exp-mapping (let-recursive-replacement var-exp-pairs id-mappings '()))]
+      (vars (car new-exp-mapping) (cadr new-exp-mapping)))))
+
+(define mapping-contains
+  (lambda (mapping target)
+    (if (null? mapping) 
+        #f
+        (if (equal? target (caar mapping))
+            #t
+            (mapping-contains (cdr mapping) target)))))
+
+(define mapping-get
+  (lambda (mapping target)
+    (if (null? mapping) 
+        '()
+        (if (equal? target (caar mapping))
+            (cadar mapping)
+            (mapping-get (cdr mapping) target)))))
+
+(define replace-vars-in-expr-list
+  (lambda (expr-list id-mappings)
+    (map (lambda (exp) (replace-uninstantiated-vars exp id-mappings)) expr-list)))
+
+(define replace-uninstantiated-vars
+  (lambda (expr id-mappings)
+    (cases expression expr
+      (num-exp (num) expr)
+      (true-exp () true-exp)
+      (false-exp () false-exp)
+      (var-exp (var) 
+               (if (mapping-contains id-mappings var)
+                   (mapping-get id-mappings var)
+                   var-exp))
+      (let-exp (var-list exp1-list body)
+               (let* [(var-exp-mapping (let-replace var-list exp1-list id-mappings))
+                      (new-exp-list (cadr var-exp-mapping))
+                      (new-mapping (caddr var-exp-mapping))
+                      (replaced-body (replace-uninstantiated-vars body new-mapping))]
+                 (let-exp var-list new-exp-list replaced-body)))
+      
+      ; Letrec is different - invalidate all keys in the mapping which correspond to var-list identifiers
+      (letrec-exp (var-list exp-list body)
+                  (let* [(new-mapping (mapping-invalidate-all-keys id-mappings var-list))
+                         (new-expr-list (replace-vars-in-expr-list exp-list id-mappings))
+                         (new-body (replace-uninstantiated-vars body new-mapping))]
+                    (letrec-exp var-list new-expr-list new-body)))
+      
+      (proc-exp (var-list exp)
+                (let [(new-mapping (mapping-invalidate-all-keys id-mappings var-list))]
+                  (proc-exp var-list (replace-uninstantiated-vars exp new-mapping))))
+      (exp-exp (rator rand-list)
+               (let* [(new-rator (replace-uninstantiated-vars rator id-mappings))
+                      (new-rands (replace-vars-in-expr-list rand-list id-mappings))]
+                 (exp-exp new-rator new-rands)))
+      (begin-exp (exp1 exp2-list)
+                 (let* [(new-exp1 (replace-uninstantiated-vars exp1 id-mappings))
+                        (new-exp2-list (replace-vars-in-expr-list exp2-list id-mappings))]
+                 (begin-exp new-exp1 new-exp2-list)))
+      (if-exp (e1 e2 e3)
+              (let* [(new-e1 (replace-uninstantiated-vars e1 id-mappings))
+                     (new-e2 (replace-uninstantiated-vars e2 id-mappings))
+                     (new-e3 (replace-uninstantiated-vars e3 id-mappings))]
+                (if-exp new-e1 new-e2 new-e3)))
+      (arith-exp (op e1 e2)
+                 (let* [(new-e1 (replace-uninstantiated-vars e1 id-mappings))
+                        (new-e2 (replace-uninstantiated-vars e2 id-mappings))]
+                   (arith-exp op new-e1 new-e2)))
+      (compare-exp (op e1 e2)
+                (let* [(new-e1 (replace-uninstantiated-vars e1 id-mappings))
+                     (new-e2 (replace-uninstantiated-vars e2 id-mappings))]
+                (compare-exp op new-e1 new-e2)))
+      (compare-equ-exp (e1 e2)
+                (let* [(new-e1 (replace-uninstantiated-vars e1 id-mappings))
+                     (new-e2 (replace-uninstantiated-vars e2 id-mappings))]
+                (compare-equ-exp new-e1 new-e2)))
+      (newpair-exp (e1 e2) 
+                   (let* [(new-e1 (replace-uninstantiated-vars e1 id-mappings))
+                          (new-e2 (replace-uninstantiated-vars e2 id-mappings))]
+                     (newpair-exp new-e1 new-e2)))
+      
+      (first-exp (e1) 
+                (let [(new-e1 (replace-uninstantiated-vars e1 id-mappings))]
+                  (first-exp new-e1)))
+      (second-exp (e1) 
+                (let [(new-e1 (replace-uninstantiated-vars e1 id-mappings))]
+                  (second-exp new-e1)))
+      
+      )))
 (define type-of-exp
   (lambda (exp env)
     (cond 
@@ -184,10 +327,15 @@
       ;(letrec-exp (var-list exp1-list body)(type-of-exp-letrec var-list exp1-list body env state) );;;TO DO
       
       
-      (proc-exp(var-list exp)
-               (let* [(var-type-list (getNewTvar var-list))
-                     (result-type (type-of-exp exp (add-env var-list var-type-list env)))]
-                 (proc-type var-type-list result-type)))
+      ;(proc-exp (var-list exp)
+      ;          (let* [(var-type-list (getNewTvar var-list))
+      ;                (result-type (type-of-exp exp (add-env var-list var-type-list env)))]
+      ;            (proc-type var-type-list result-type)))
+      
+      (proc-exp (var-list exp)
+                (let* [(var-types (get-args-placeholders var-list))
+                      (identifier-var-mapping (zip var-list var-types))]
+                  (proc-type var-types (type-of-exp (replace-uninstantiated-vars exp identifier-var-mapping) env))))
       
       (exp-exp(rator rand-list)
               (let* ([exp-list (cons rator rand-list)]
@@ -197,6 +345,14 @@
                 (list-last value-list)))  
               
       ;(begin-exp (exp1 exp2-list) (type-of-exp-begin exp1 exp2-list env state));;TO DO
+      ; 1) Begin returns the value of the last expression, so we return type-of last expression
+      ; 2) None of the language expressions can modify the environment 
+      ;    (since we are not using store and environment bindings from let only appy to the let-body)
+      ; So, we can return type-of last expression with the input environment 
+      (begin-exp (exp1 exp2-list) 
+                 (if (null? exp2-list)
+                     (type-of-exp exp1 env)
+                     (type-of-exp (list-last exp2-list) env)))
       
       (if-exp(exp1 exp2 exp3)
              (let [(ty1 (type-of-exp exp1 env))
@@ -223,7 +379,7 @@
                   (if (and (typeCheck ty1 (int-type))(typeCheck ty2 (int-type)))
                    (bool-type)
                    (bad-type))))
-                  
+      
       (compare-equ-exp(exp1 exp2)
                          (let [(ty1 (type-of-exp exp1 env))
                       (ty2 (type-of-exp exp2 env))]
@@ -338,10 +494,6 @@
                       (else env))))
          (else  env)))))
 
-
-
-
-
 (define type-of-exp-begin
   (lambda (exp1 exps env state)
     (letrec
@@ -388,27 +540,60 @@
     (type-of-exp (scan&parse exp) (empty-env))))
 
 ;=====================================Test========================================
-(trace type-of)
-(trace type-of-exp)
-(trace add-env)
-(trace scan&parse)
-(trace getNewTvar)
-(trace fold-left)
-(trace typeCheck)
-(trace andBool)
+;(trace type-of)
+;(trace type-of-exp)
+;(trace add-env)
+;(trace scan&parse)
+;(trace getNewTvar)
+;(trace fold-left)
+;(trace typeCheck)
+;(trace andBool)
 ;(trace addCounter)
 ;(trace gensym)
 
+;;; Unit test
+(define (reportmsg msg)
+	(display msg)
+	(newline))
+ (define (reporterr msg)
+	(display "ERROR: ")
+	(display msg)
+	(newline))
+(define (assert msg b)
+  (if (not b) (reporterr msg) b))
+(define (asserteq msg a b) (assert msg (equal? a b)))
 
-;(type-of "1")
-;(type-of "true")
-;(type-of "let x= newpair (1,2) in first (x)");int-type
-;(type-of "let f = proc (x) +(x,1) in (f 2)");int-type
-;(type-of "newpair (1,true)");pair-type #(struct:int-type) #(struct:bool-type)
+; Primitives - Not testing for unbound identifier
+(asserteq "test1" (type-of "1") (int-type))
+(asserteq "test2" (type-of "false") (bool-type))
+(asserteq "test3" (type-of "true") (bool-type))
+
+; First, Second
+(asserteq "test4" (type-of "let x = newpair (1,2) in first (x)") (int-type))
+(asserteq "test5" (type-of "let x = newpair (1,true) in second (x)") (bool-type))
+
+; NewPair
+(asserteq "test6" (type-of "newpair (1,true)") (pair-type (int-type) (bool-type)))
+(asserteq "test7" (type-of "newpair (false,true)") (pair-type (bool-type) (bool-type)))
+(asserteq "test8" (type-of "newpair (1, 2)") (pair-type (int-type) (int-type)))
+
+; Comparison, Arithmetic. Only allows integer operands.
+(asserteq "test9" (type-of "=(1,2)") (bool-type))
+(asserteq "test10" (type-of "=(1,true)") (bad-type))
+(asserteq "test11" (type-of "+(1,2)") (int-type))
+(asserteq "test12" (type-of "+(1,true)") (bad-type))
+(asserteq "test13" (type-of "-(1,2)") (int-type))
+(asserteq "test14" (type-of "-(1,true)") (bad-type))
+
+; IF : bad type if the last two expressions are not the same type 
+(asserteq "test15" (type-of "if =(1, 2) then 5 else false") (bad-type))
+(asserteq "test16" (type-of "if =(1, 2) then 5 else 4") (int-type))
+
+;(type-of "let f = proc (x) +(x,1) in (f 2)")
 ;(type-of "- (1,3,true,2)");bad-type
 ;(type-of "> (false, 9)");bad-type
 ;(type-of "= (true, ture)");bad-type
 ;(type-of "if =(1,2) then 5 else false");bad-type
 ;(type-of "proc(x)x");proc-type (#(struct:tvar-type t0)) #(struct:tvar-type t0))
-(type-of "proc(x y) newpair (x,y)")
+;(type-of "proc(x y) newpair (x,y)")
 ;(type-of "let f = proc(x) +(x,1) in (f true)");;Wrong
