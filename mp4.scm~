@@ -26,6 +26,8 @@
     (expression ("letrec" (arbno identifier "=" expression) "in" expression) letrec-exp)
     (expression ("proc" "(" (arbno identifier) ")" expression) proc-exp)
     (expression ( "(" expression (arbno expression) ")") exp-exp)
+    ;(expression ("newref" "(" expression ")") newRef-exp)
+    ;(expression ("set" identifier expression)set-exp)
     (expression ("begin" expression (arbno ";" expression) "end")begin-exp)
     (expression ("if" expression "then" expression "else" expression)if-exp)
     (expression (arith-op "(" expression (arbno "," expression) ")")arith-exp)
@@ -79,7 +81,6 @@
       (my-answer(ty sub) sub)
       (else ans))))
 
-;;Add for bad-type check
 (define an-answer
   (lambda (type sub)
     (if (substitution? sub)
@@ -98,8 +99,6 @@
    (first expval?)
    (second expval?)))
 
-;;CheckType
-;;Notice input shoud be type.
 (define typeCheck
   (lambda (ty1 ty2)
     (if (equal? ty1 ty2)
@@ -135,7 +134,7 @@
       (extended-tenv-record (sym1 val1 old-env)
                             (if (eqv? sym sym1) 
                                 val1
-                                (apply-tenv sym old-env ))))))
+                                (apply-tenv old-env sym))))))
 
 (define init-tenv
   (lambda ()
@@ -150,7 +149,7 @@
   (let ((sn 0))
     (lambda ()
       (set! sn (+ sn 1))
-      (tvar-type 'sn))))
+      (tvar-type sn))))
 
 ;; otype->type : OptionalType -> Type
 ;; Page: 265
@@ -194,16 +193,6 @@
     (cases type ty
       (proc-type(t1 t2) #t)
       (else #f))))
-
-(define bad-type?
-  (lambda (ty)
-    (cond
-      [(type? ty)
-       (cases type ty
-         (bad-type() #t)
-         (else #f))]
-      (else #f))))
-
 
 (define proc-type->arg-type
   (lambda (ty)
@@ -272,7 +261,7 @@
 
 
 (define substitution?
-  (list-of (pair-of tvar-type? type?)))
+  (list-of (pair-of type? type?)))
 ;; basic observer: apply-subst-to-type
 ;; this is sometimes written ty1.subst 
 
@@ -280,22 +269,19 @@
 ;; Page: 261
 (define apply-subst-to-type
   (lambda (ty subst)
-    (cond
-      [(bad-type? subst) (bad-type)]
-      [else 
-       (cases type ty
-         (int-type () (int-type))
-         (bool-type () (bool-type))
-         (proc-type (t1 t2)
-                    (proc-type
-                     (many-to-one-map apply-subst-to-type t1 subst)
-                     (apply-subst-to-type t2 subst)))
-         (tvar-type (sn)
-                    (let ((tmp (assoc ty subst)))
-                      (if tmp
-                          (cdr tmp)
-                          ty)))
-         (bad-type ty))])))
+    (cases type ty
+      (int-type () (int-type))
+      (bool-type () (bool-type))
+      (proc-type (t1 t2)
+                 (proc-type
+                  (apply-subst-to-type t1 subst)
+                  (apply-subst-to-type t2 subst)))
+      (tvar-type (sn)
+                 (let ((tmp (assoc ty subst)))
+                   (if tmp
+                       (cdr tmp)
+                       ty)))
+      (bad-type ty))))
 
 ;; empty-subst : () -> Subst
 ;; produces a representation of the empty substitution.
@@ -357,7 +343,7 @@
              (extend-subst subst ty2 ty1)
              (report-no-occurrence-violation ty2 ty1 exp)))
         ((and (proc-type? ty1) (proc-type? ty2))
-         (let ((subst (list-unifier
+         (let ((subst (unifier
                        (proc-type->arg-type ty1)
                        (proc-type->arg-type ty2)
                        subst exp)))
@@ -545,7 +531,7 @@
 (define type-of-exp
   (lambda (exp env subst)
     (cond 
-      [(type? exp) (an-answer exp subst)]
+      [(type? exp) exp]
       [else 
     (cases expression exp
       (num-exp (number) (an-answer (int-type) subst))
@@ -563,34 +549,28 @@
       ;(letrec-exp (var-list exp1-list body)(type-of-exp-letrec var-list exp1-list body env state) );;;TO DO
       
       
+      ;(proc-exp (var-list exp)
+      ;          (let* [(var-type-list (getNewTvar var-list))
+      ;                (result-type (type-of-exp exp (add-env var-list var-type-list env)))]
+      ;            (proc-type var-type-list result-type)))
+      
       (proc-exp (var-list exp)
-                (let*[(var-list-type (getNewTvar var-list subst))
-                  (env (add-env var-list var-list-type env subst))]
-                 
-              (cases answer (type-of-exp exp env subst)
-                  (my-answer (result-type subst)
-                             (an-answer
-                              (proc-type (get-arg-type-list var-list-type subst) result-type)
-                              subst)))))
+                (let* [(var-types (get-args-placeholders var-list))
+                      (identifier-var-mapping (zip var-list var-types))]
+                  (proc-type var-types (type-of-exp (replace-uninstantiated-vars exp identifier-var-mapping) env))))
       
-    ; (proc-exp (var-list exp)
-     ;           (let* [(var-types (get-args-placeholders var-list))
-      ;                (identifier-var-mapping (zip var-list var-types))]
-       ;           (proc-type var-types (type-of-exp (replace-uninstantiated-vars exp identifier-var-mapping) env))))
-      
-      ;;Notice I am not sure how to deal with rand-list insteat of rand, I put car at line 586 for now.
       (exp-exp(rator rand-list)
               (let ((result-type (fresh-tvar-type)))
                 (cases answer (type-of-exp rator env subst)
                   (my-answer (rator-type subst)
-                             (cases answer (type-of-exp (car rand-list) env subst)
+                             (cases answer (type-of rand-list env subst)
                                (my-answer (rand-type subst)
                                           (let ((subst
                                                  (unifier rator-type
-                                                          (proc-type (list rand-type) result-type)
+                                                          (proc-type rand-type result-type)
                                                           subst
                                                           exp)))
-                                            (an-answer (apply-subst-to-type result-type subst) subst))))))))
+                                            (an-answer result-type subst))))))))
       
       ;(begin-exp (exp1 exp2-list) (type-of-exp-begin exp1 exp2-list env state));;TO DO
       ; 1) Begin returns the value of the last expression, so we return type-of last expression
@@ -614,26 +594,32 @@
                                                       (let ((subst (unifier ty2 ty3 subst exp)))
                                                         (an-answer ty2 subst))))))))))
       
-      
-      ;;For now only consider first elemnt of exp2
       (arith-exp(arith-op exp1 exp2)
                 (let* [(ty1 (answer->type (type-of-exp exp1 env subst)))
-                      (ty2-list ( map answer->type (many-to-one-to-one-map type-of-exp exp2 env subst)))
-                      (subst (unifier ty1 (int-type) subst exp1))
-                      (subst (list-unifier ty2-list (replicate (int-type) (length ty2-list))subst exp2))]
-                   (an-answer (apply-subst-to-type ty1 subst)subst)))
+                      [exp-list-length (length exp2)]
+                      [env-list (replicate env exp-list-length)]
+                      (sub-list (replicate subst exp-list-length))
+                      (ty2ans-list (map type-of-exp exp2 env-list sub-list))
+                      (ty2-list (map answer->type ty2ans-list))
+                      (int-list (replicate (int-type) exp-list-length))
+                      (ty2-typeCheck (map typeCheck ty2-list int-list))]
+                  (if (and (and (typeCheck ty1 (int-type))(typeCheck (answer->type (type-of-exp (car exp2) env subst)) (int-type))) (andBool ty2-typeCheck))
+                   (an-answer ty1 subst)
+                   (an-answer (bad-type) subst))))
       
       (compare-exp(compare-op exp1 exp2)
-                  (let* [(ty1 (answer->type (type-of-exp exp1 env subst)))
-                         (ty2 (answer->type (type-of-exp exp2 env subst)))
-                         (subst (unifier ty1 ty2 subst exp1))]
-                    (an-answer (bool-type) subst)))
+                     (let [(ty1 (answer->type (type-of-exp exp1 env subst)))
+                      (ty2 (answer->type (type-of-exp exp2 env subst)))]
+                  (if (and (typeCheck ty1 (int-type))(typeCheck ty2 (int-type)))
+                   (an-answer (bool-type) subst)
+                   (an-answer (bad-type) subst))))
       
       (compare-equ-exp(exp1 exp2)
-                      (let* [(ty1 (answer->type (type-of-exp exp1 env subst)))
-                             (ty2 (answer->type (type-of-exp exp2 env subst)))
-                             (subst (unifier ty1 ty2 subst exp1))]
-                        (an-answer (bool-type) subst)))
+                         (let [(ty1 (answer->type (type-of-exp exp1 env subst)))
+                      (ty2 (answer->type (type-of-exp exp2 env subst)))]
+                  (if (and (typeCheck ty1 (int-type))(typeCheck ty2 (int-type)))
+                   (an-answer (bool-type) subst)
+                   (an-answer (bad-type) subst))))
       
       (newpair-exp (exp1 exp2) 
                    (let [(ty1 (type-of-exp exp1 env subst))
@@ -662,8 +648,8 @@
         (and (car exp-list) (andBool (cdr exp-list))))))
 
 (define getNewTvar
-  (lambda (var-list subst)
-   (map (lambda (list) (tvar-type (gensym)))  var-list)))
+  (lambda (var-list)
+    (map (lambda (list) (tvar-type (gensym)) )var-list)))
 
 
 ; Replicates the given element n times, returning a list.
@@ -701,31 +687,7 @@
     (let ([newtype (answer->type (type-of-exp (car exp1-list) env subst) )])
       (if (null? (cdr var-list)) 
           (extend-tenv (car var-list) newtype env)
-          (add-env (cdr var-list) (cdr exp1-list) (extend-tenv (car var-list) newtype env) subst)))))
-
-
-(define get-arg-type-list
-  (lambda (arg-list subst)
-    (let* [(list-length  (length arg-list))
-           (sub-list (replicate subst list-length))]
-           (map apply-subst-to-type arg-list sub-list))))
-
-(define many-to-one-map
-  (lambda (map-func exp1-list exp2) 
-    (let [(exp2-list (replicate exp2 (length exp1-list)))]
-      (map map-func exp1-list exp2-list))))
-
-(define many-to-one-to-one-map
-  (lambda (map-func exp1-list exp2 exp3) 
-    (let [(exp2-list (replicate exp2 (length exp1-list)))
-          (exp3-list (replicate exp3 (length exp1-list)))]
-      (map map-func exp1-list exp2-list exp3-list))))
-
-(define list-unifier
-  (lambda (ty1-list ty2-list subst exp)
-    (if (null?(cdr ty1-list))
-        (unifier (car ty1-list) (car ty2-list) subst exp)
-        (list-unifier (cdr ty1-list) (cdr ty2-list) (unifier (car ty1-list) (car ty2-list) subst exp) exp))))
+          (add-env (cdr var-list) (cdr exp1-list) (extend-tenv (car var-list) newtype env))))))
 
 (define add-env-proc
   (lambda (var-list exp1-list env state)
@@ -765,11 +727,7 @@
 (trace andBool)
 (trace apply-tenv)
 (trace unifier)
-(trace apply-subst-to-type)
-(trace  proc-type->arg-type)
-(trace  proc-type->result-type)
-(trace list-unifier)
-(trace many-to-one-map)
+
 
 
 ;;; Unit test
@@ -807,8 +765,8 @@
 ;(asserteq "test14" (type-of "-(1,true)") (bad-type))
 
 ; IF : bad type if the last two expressions are not the same type 
-;(asserteq "test15" (type-of "if =(1, 2) then 5 else false") (bad-type))
-;(asserteq "test16" (type-of "if =(1, 2) then 5 else 4") (int-type))
+(asserteq "test15" (type-of "if =(1, 2) then 5 else false") (bad-type))
+(asserteq "test16" (type-of "if =(1, 2) then 5 else 4") (int-type))
 
 ;(type-of "let f = proc (x) +(x,1) in (f 2)")
 ;(type-of "- (1,3,true,2)");bad-type
@@ -817,7 +775,5 @@
 ;(type-of "if =(1,2) then 5 else false");bad-type
 ;(type-of "proc(x)x");proc-type (#(struct:tvar-type t0)) #(struct:tvar-type t0))
 ;(type-of "proc(x y) newpair (x,y)")
-;(type-of "proc(x)x");(proc-type (list (tvar-type 'g210790)) (tvar-type 'g210790))
-;(type-of "proc(x) +(x,true)")
-;(type-of "let f = proc(x) +(x,1) in (f true)");bad-type
-;(type-of "let f = proc(x) +(x,1) in (f 2)");int-type
+;(type-of "let f = proc(x) +(x,1) in (f true)");;Wrong
+
