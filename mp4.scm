@@ -604,7 +604,7 @@
       
       (if-exp(exp1 exp2 exp3)
              (cases answer (type-of-exp exp1 env subst)
-               (my-answer (ty1 subst)
+               (my-answer (ty1 subst1)
                           (let ((subst (unifier ty1 (bool-type) subst
                                                 exp1)))
                             (cases answer (type-of-exp exp2 env subst)
@@ -810,6 +810,7 @@
 ;(asserteq "test15" (type-of "if =(1, 2) then 5 else false") (bad-type))
 ;(asserteq "test16" (type-of "if =(1, 2) then 5 else 4") (int-type))
 
+;;PASSED:
 ;(type-of "let f = proc (x) +(x,1) in (f 2)")
 ;(type-of "- (1,3,true,2)");bad-type
 ;(type-of "> (false, 9)");bad-type
@@ -821,3 +822,9 @@
 ;(type-of "proc(x) +(x,true)")
 ;(type-of "let f = proc(x) +(x,1) in (f true)");bad-type
 ;(type-of "let f = proc(x) +(x,1) in (f 2)");int-type
+;(type-of "let f = proc(x) x in if (f true) then (f 3) else (f 5)");int-type
+;(type-of "let f = proc(x) x in newpair((f true),(f 8))");(pair-type (bool-type) (int-type))
+;(type-of "proc (x) +(x,1)");(proc-type (list (int-type)) (int-type))
+
+;;FAILED
+;(type-of "(proc(y) if (y true) then (y 4) else 0 proc (x) x)")
