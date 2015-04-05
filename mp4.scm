@@ -818,9 +818,12 @@
   (lambda (arg-list env subst)
           (if(null? (cdr arg-list))
              (type-of-exp (car arg-list) env subst)
-             (cond
-               [(bad-type? (answer->type (type-of-exp (car arg-list) env subst))) (my-answer (bad-type) subst)]
-               [else (begin-list (cdr arg-list) env subst)]))))
+             (let [(ans (type-of-exp (car arg-list) env subst))]
+              (cond
+               [(bad-type? (answer->type ans)) (an-answer (bad-type) subst)]
+               [(answer? ans) 
+                     (begin-list (cdr arg-list) env (answer->sub ans))]
+               [else (an-answer (bad-type) subst)])))))
              
 
 (define add-env-proc
@@ -930,6 +933,7 @@
 ;(type-of "proc (x) +(x,1)");(proc-type (list (int-type)) (int-type))
 
 ;(type-of "begin if 5 then 5 else 7; 5 end");bad type
+;(type-of "begin if =(1,2) then true else 7; true end");bad type
 ;(type-of "begin if =(1,2) then 5 else 7; 5 end");int type
 ;(type-of "begin if =(1,2) then 5 else 7; true end");bool type
 
