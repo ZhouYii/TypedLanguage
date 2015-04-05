@@ -204,7 +204,6 @@
          (else #f))]
       (else #f))))
 
-
 (define proc-type->arg-type
   (lambda (ty)
     (cases type ty
@@ -388,9 +387,9 @@
     (cases type ty
       (int-type () #t)
       (bool-type () #t)
-      (proc-type (arg-type result-type)
+      (proc-type (arg-type-list result-type)
                  (and
-                  (no-occurrence? tvar arg-type)
+                  (andBool (many-to-one-map no-occurrence? arg-type-list tvar))
                   (no-occurrence? tvar result-type)))
       (tvar-type (serial-number) (not (equal? tvar ty)))
       (bad-type #f))))
@@ -546,6 +545,7 @@
   (lambda (exp env subst)
     (cond 
       [(type? exp) (an-answer exp subst)]
+      [(answer? exp) exp]
       [else 
     (cases expression exp
       (num-exp (number) (an-answer (int-type) subst))
@@ -579,18 +579,7 @@
        ;           (proc-type var-types (type-of-exp (replace-uninstantiated-vars exp identifier-var-mapping) env))))
       
       ;;Notice I am not sure how to deal with rand-list insteat of rand, I put car at line 586 for now.
-      (exp-exp(rator rand-list)
-              (let ((result-type (fresh-tvar-type)))
-                (cases answer (type-of-exp rator env subst)
-                  (my-answer (rator-type subst)
-                             (cases answer (type-of-exp (car rand-list) env subst)
-                               (my-answer (rand-type subst)
-                                          (let ((subst
-                                                 (unifier rator-type
-                                                          (proc-type (list rand-type) result-type)
-                                                          subst
-                                                          exp)))
-                                            (an-answer (apply-subst-to-type result-type subst) subst))))))))
+
       
       ;(begin-exp (exp1 exp2-list) (type-of-exp-begin exp1 exp2-list env state));;TO DO
       ; 1) Begin returns the value of the last expression, so we return type-of last expression
@@ -599,8 +588,8 @@
       ; So, we can return type-of last expression with the input environment 
       (begin-exp (exp1 exp2-list) 
                  (if (null? exp2-list)
-                     (type-of-exp exp1 env)
-                     (type-of-exp (list-last exp2-list) env)))
+                     (type-of-exp exp1 env subst)
+                     (begin-list (append (list exp1) exp2-list) env subst)))
       
       (if-exp(exp1 exp2 exp3)
              (cases answer (type-of-exp exp1 env subst)
@@ -727,6 +716,15 @@
         (unifier (car ty1-list) (car ty2-list) subst exp)
         (list-unifier (cdr ty1-list) (cdr ty2-list) (unifier (car ty1-list) (car ty2-list) subst exp) exp))))
 
+(define begin-list
+  (lambda (arg-list env subst)
+          (if(null? (cdr arg-list))
+             (type-of-exp (car arg-list) env subst)
+             (cond
+               [(bad-type? (answer->type (type-of-exp (car arg-list) env subst))) (my-answer (bad-type) subst)]
+               [else (begin-list (cdr arg-list) env subst)]))))
+             
+
 (define add-env-proc
   (lambda (var-list exp1-list env state)
     (if (null? (cdr var-list))
@@ -770,6 +768,9 @@
 (trace  proc-type->result-type)
 (trace list-unifier)
 (trace many-to-one-map)
+(trace no-occurrence?)
+(trace begin-list)
+(trace an-answer)
 
 
 ;;; Unit test
@@ -826,5 +827,11 @@
 ;(type-of "let f = proc(x) x in newpair((f true),(f 8))");(pair-type (bool-type) (int-type))
 ;(type-of "proc (x) +(x,1)");(proc-type (list (int-type)) (int-type))
 
+;(type-of "begin if 5 then 5 else 7; 5 end");bad type
+;(type-of "begin if =(1,2) then 5 else 7; 5 end");int type
+;(type-of "begin if =(1,2) then 5 else 7; true end");bool type
+
 ;;FAILED
 ;(type-of "(proc(y) if (y true) then (y 4) else 0 proc (x) x)")
+;(type-of "proc(y) if (y true) then (y 4) else 0")
+
