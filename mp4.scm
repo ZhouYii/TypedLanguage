@@ -542,8 +542,50 @@
                   (second-exp new-e1)))
       
       )))
+
+(define get-proc-arg-identifiers
+  (lambda (expr-type)
+    (if (expression? proc-exp) 
+        (cases expression exp
+          (proc-exp (var-list body-exp) var-list)
+          (else '()))
+        '())))
+
+(define extend-multi-env
+  (lambda (env pairs)
+    (if (null? pairs)
+        env
+        (let* [(first-pair (car pairs))
+               (identifier (car first-pair))
+               (value (cadr first-pair))
+               (remaining (cdr pairs))]
+          (if (answer? value)
+              (cases answer value
+                (my-answer (type subst) 
+                           (extend-multi-env (extend-tenv type value env) remaining)))
+              (extend-multi-env (extend-tenv identifier value env) remaining))))))
+
+(define list-index-of
+  (lambda (lst idx)
+    (if (equal? 0 idx)
+        (car lst)
+        (list-index-of (cdr lst) (- idx 1)))))
+
+(define match-tvar
+  (lambda (var-list target-id idx)
+    (if (null? var-list)
+        -1
+        (let [(t1 (car var-list))]
+          (cases type t1
+            (tvar-type (id-number)
+                       (if (equal? id-number target-id)
+                           idx
+                           (match-tvar (cdr var-list target-id (+ 1 idx)))))
+            (else (match-tvar (cdr var-list target-id (+ 1 idx)))))))))
+          
+              
 (define type-of-exp
-  (lambda (exp env subst)
+  (lambda (exp env subst args-continuation)
     (cond 
       [(type? exp) (an-answer exp subst)]
       [else 
@@ -562,35 +604,70 @@
       
       ;(letrec-exp (var-list exp1-list body)(type-of-exp-letrec var-list exp1-list body env state) );;;TO DO
       
-      
       (proc-exp (var-list exp)
                 (let*[(var-list-type (getNewTvar var-list subst))
-                  (env (add-env var-list var-list-type env subst))]
-                 
-              (cases answer (type-of-exp exp env subst)
-                  (my-answer (result-type subst)
-                             (an-answer
-                              (proc-type (get-arg-type-list var-list-type subst) result-type)
-                              subst)))))
-      
+                      (env (add-env var-list var-list-type env subst))]
+                  (if (equal? (length var-list) (length args-continuation))
+                      ; Called from apply-expression
+                      (let* [(new-type-mappings (zip var-list args-continuation))
+                             (new-type-env (add-env var-list args-continuation env subst))]
+                        (cases answer (type-of-exp exp new-type-env subst '())
+                          (my-answer (result-type subst)
+                                     (an-answer (proc-type (get-arg-type-list var-list-type subst) result-type) subst))))
+                      
+                      (cases answer (type-of-exp exp env subst '())
+                        (my-answer (result-type subst)
+                                   (an-answer 
+                                    (proc-type (get-arg-type-list var-list-type subst) result-type) 
+                                    subst))))))
+      ;(proc-exp (var-list exp)
+      ;          (let*[(var-list-type (getNewTvar var-list subst))
+      ;            (env (add-env var-list var-list-type env subst))]
+      ;           
+      ;        (cases answer (type-of-exp exp env subst)
+      ;            (my-answer (result-type subst)
+      ;                       (an-answer
+      ;                        (proc-type (get-arg-type-list var-list-type subst) result-type)
+      ;                        subst)))))
+     ; 
     ; (proc-exp (var-list exp)
      ;           (let* [(var-types (get-args-placeholders var-list))
       ;                (identifier-var-mapping (zip var-list var-types))]
        ;           (proc-type var-types (type-of-exp (replace-uninstantiated-vars exp identifier-var-mapping) env))))
       
       ;;Notice I am not sure how to deal with rand-list insteat of rand, I put car at line 586 for now.
-      (exp-exp(rator rand-list)
-              (let ((result-type (fresh-tvar-type)))
-                (cases answer (type-of-exp rator env subst)
-                  (my-answer (rator-type subst)
-                             (cases answer (type-of-exp (car rand-list) env subst)
-                               (my-answer (rand-type subst)
-                                          (let ((subst
-                                                 (unifier rator-type
-                                                          (proc-type (list rand-type) result-type)
-                                                          subst
-                                                          exp)))
-                                            (an-answer (apply-subst-to-type result-type subst) subst))))))))
+      (exp-exp (rator rand-list)
+               ;(let ((result-type (fresh-tvar-type)))
+               ;  (cases answer (type-of-exp rator env subst)
+               ;    (my-answer (rator-type subst)
+               ;               (cases answer (type-of-exp (car rand-list) env subst)
+               ;                 (my-answer (rand-type subst)
+               ;                            (let ((subst
+               ;                                   (unifier rator-type
+               ;                                            (proc-type (list rand-type) result-type)
+               ;                                            subst
+               ;                                            exp)))
+               ;                              (an-answer (apply-subst-to-type result-type subst) subst))))))))
+               
+               ;; One complexity is because operator expression is not guaranteed to be proc-expression 
+               (let* [(arg-types (map (lambda (exp) (type-of-exp exp env subst '())) rand-list))]
+                 (cases answer (type-of-exp rator env subst rand-list)
+                   (my-answer (rator-proc subst)
+                              ; Assert the rator is a proc (otherwise bad type) and evaluate the result-type
+                              (if (type? rator-proc)
+                                  (cases type rator-proc
+                                    (proc-type (arg-list result-type) 
+                                               (cases type result-type
+                                                 ; If same tvar is present in args list, we can perform substitution
+                                                 (tvar-type (tvar-id) 
+                                                            (let [(args-idx (match-tvar arg-list tvar-id 0))]
+                                                              (if (equal? -1 args-idx)
+                                                                  result-type ; Cannot find type
+                                                                  (list-index-of arg-types args-idx))))
+                                                 (else result-type)))
+                                    (else (bad-type)))
+                                  (bad-type))))))
+                                      
       
       ;(begin-exp (exp1 exp2-list) (type-of-exp-begin exp1 exp2-list env state));;TO DO
       ; 1) Begin returns the value of the last expression, so we return type-of last expression
@@ -603,16 +680,27 @@
                      (type-of-exp (list-last exp2-list) env)))
       
       (if-exp(exp1 exp2 exp3)
-             (cases answer (type-of-exp exp1 env subst)
+             (cases answer (type-of-exp exp1 env subst '())
                (my-answer (ty1 subst1)
+                          
                           (let ((subst (unifier ty1 (bool-type) subst
                                                 exp1)))
-                            (cases answer (type-of-exp exp2 env subst)
+                            (cases answer (type-of-exp exp2 env subst '())
                               (my-answer (ty2 subst)
-                                         (cases answer (type-of-exp exp3 env subst)
+                                         (cases answer (type-of-exp exp3 env subst '())
                                            (my-answer (ty3 subst)
                                                       (let ((subst (unifier ty2 ty3 subst exp)))
                                                         (an-answer ty2 subst))))))))))
+               
+               ;(my-answer (ty1 subst1)
+               ;           (let ((subst (unifier ty1 (bool-type) subst
+               ;                                 exp1)))
+               ;             (cases answer (type-of-exp exp2 env subst '())
+               ;               (my-answer (ty2 subst)
+               ;                          (cases answer (type-of-exp exp3 env subst '())
+               ;                            (my-answer (ty3 subst)
+               ;                                       (let ((subst (unifier ty2 ty3 subst exp)))
+               ;                                         (an-answer ty2 subst))))))))))
       
       
       ;;For now only consider first elemnt of exp2
@@ -698,7 +786,7 @@
 
 (define add-env
   (lambda (var-list exp1-list env subst)
-    (let ([newtype (answer->type (type-of-exp (car exp1-list) env subst) )])
+    (let ([newtype (answer->type (type-of-exp (car exp1-list) env subst '()) )])
       (if (null? (cdr var-list)) 
           (extend-tenv (car var-list) newtype env)
           (add-env (cdr var-list) (cdr exp1-list) (extend-tenv (car var-list) newtype env) subst)))))
@@ -752,7 +840,10 @@
 ;==============================Wrap Func=================================
 (define type-of
   (lambda (exp)
-    (answer->type (type-of-exp (scan&parse exp) (empty-tenv) (empty-subst)))))
+    (let [(result (type-of-exp (scan&parse exp) (empty-tenv) (empty-subst) '()))]
+      (if (answer? result)
+          (answer->type result)
+          result))))
 
 ;=====================================Test========================================
 (trace type-of)
@@ -770,7 +861,7 @@
 (trace  proc-type->result-type)
 (trace list-unifier)
 (trace many-to-one-map)
-
+(trace extend-multi-env)
 
 ;;; Unit test
 (define (reportmsg msg)
@@ -827,4 +918,4 @@
 ;(type-of "proc (x) +(x,1)");(proc-type (list (int-type)) (int-type))
 
 ;;FAILED
-;(type-of "(proc(y) if (y true) then (y 4) else 0 proc (x) x)")
+(type-of "(proc(y) if (y true) then (y 4) else 0 proc (x) x)")
