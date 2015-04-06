@@ -1,4 +1,5 @@
 #lang racket
+(require "types-from-staff.scm")
 (require eopl)
 (require trace/calltrace-lib)
 
@@ -43,20 +44,6 @@
 (define scan&parse
   (sllgen:make-string-parser q1-spec q1-grammar))
 ;=================================Interpreter=====================================
-
-;;Copy from MP instruction
-(define-datatype type type?
-  (int-type)
-  (bool-type)
-  (proc-type
-   (arg-type (list-of type?))
-   (return-type type?))
-  (pair-type
-   (first-type type?)
-   (second-type type?))
-  (tvar-type
-   (sym symbol?))
-  (bad-type))
 
 
 
@@ -861,9 +848,9 @@
         (cond
           [(proc-exp? (car exp1-list))
                     (let [(var (getNewTvar (proc-exp->var-list (car exp1-list)) subst))
-                          (result (gensym))]
-                    (add-env-letrec (cdr var-list) (cdr exp1-list)(extend-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) (car exp1-list) (extend-tenv (car var-list) (proc-type var result) env))))]
-          (else (add-env-letrec (cdr var-list) (cdr exp1-list) (extend-tenv (car var-list)  (answer->type (type-of-exp (car exp1-list) env subst)) env) ))))))
+                          (result (tvar-type (gensym)))]
+                    (add-env-letrec (cdr var-list) (cdr exp1-list)(extend-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) (car exp1-list) (extend-tenv (car var-list) (proc-type var result) env) ) subst))]
+          (else (add-env-letrec (cdr var-list) (cdr exp1-list) (extend-tenv (car var-list)  (answer->type (type-of-exp (car exp1-list) env subst)) env) subst ))))))
 
 
 (define resolve-letrec
@@ -871,7 +858,7 @@
     (let ([newtype (answer->type (type-of-exp (apply-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) env) env subst '()))])
       (if (null? (cdr var-list)) 
           (extend-tenv (car var-list) newtype env)
-          (resolve-letrec (cdr var-list) (extend-tenv (car var-list) newtype env))))))
+          (resolve-letrec (cdr var-list) (extend-tenv (car var-list) newtype env) subst)))))
 
 
 
@@ -1025,5 +1012,4 @@
 ;(type-of "proc(y) if (y true) then (y 4) else 0")
 
 ;;Letrec
-(type-of "letrec ill = proc(x) (ill x) in (ill 5)")
-
+;(type-of "letrec ill = proc(x) (ill x) in (ill 5)")
