@@ -701,7 +701,10 @@
                                                (cases type result-type
                                                  ; If same tvar is present in args list, we can perform substitution
                                                  (tvar-type (tvar-id) 
-                                                            (poly-type-resolve arg-list arg-types tvar-id result-type subst))
+                                                            (begin
+                                                             (write '333)
+                                                             (write (apply-subst-to-type tvar-id subst))
+                                                            (poly-type-resolve arg-list arg-types tvar-id result-type subst)))
                                                  (pair-type (p1 p2)
                                                             (let [(p1-type (answer->type (poly-tvar-resolve p1 arg-list arg-types subst)))
                                                                   (p2-type (answer->type (poly-tvar-resolve p2 arg-list arg-types subst)))]
@@ -829,10 +832,12 @@
 
 (define add-env
   (lambda (var-list exp1-list env subst)
-    (let ([newtype (answer->type (type-of-exp (car exp1-list) env subst '()) )])
-      (if (null? (cdr var-list)) 
-          (extend-tenv (car var-list) newtype env)
-          (add-env (cdr var-list) (cdr exp1-list) (extend-tenv (car var-list) newtype env) subst)))))
+    (if (or (null? var-list) (null? exp1-list))
+        env
+        (let ([newtype (answer->type (type-of-exp (car exp1-list) env subst '()) )])
+          (if (null? (cdr var-list)) 
+              (extend-tenv (car var-list) newtype env)
+              (add-env (cdr var-list) (cdr exp1-list) (extend-tenv (car var-list) newtype env) subst))))))
 
 (define add-env-letrec
   (lambda (var-list exp1-list env subst)
@@ -997,7 +1002,7 @@
 ;(type-of "proc(x y) newpair (x,y)")
 ;(type-of "proc(x)x");(proc-type (list (tvar-type 'g210790)) (tvar-type 'g210790))
 ;(type-of "proc(x) +(x,1)")
-;(type-of "let f = proc(x) +(x,1) in (f true)");bad-type
+(type-of "let f = proc(x) +(x,1) in (f true)");bad-type
 ;(type-of "let f = proc(x) +(x,1) in (f 2)");int-type
 ;(type-of "let f = proc(x) x in if (f true) then (f 3) else (f 5)");int-type
 ;(type-of "let f = proc(x) x in newpair((f true),(f 8))");(pair-type (bool-type) (int-type))
