@@ -618,8 +618,23 @@
     (let [(args-idx (match-tvar args-id-list tvar-id 0))]
       (if (equal? -1 args-idx)
           (my-answer tval-type subst) ; Cannot find type
-          (begin (write (list-index-of type-list args-idx)) (write '333) (list-index-of type-list args-idx))))))
-  
+          (begin (list-index-of type-list args-idx))))))
+
+(define consistent-type-args
+  (lambda (proc-type-list given-type-list)
+    (let [(t1 (car proc-type-list))
+          (t2 (car given-type-list))]
+      (if (equal? (length proc-type-list) (length given-type-list))
+          (if (null? proc-type-list)
+              #t
+              (cases type t1
+                (tvar-type (serial) (consistent-type-args (cdr proc-type-list) (cdr given-type-list)))
+                (else (if (equal? t1 t2)
+                          (consistent-type-args (cdr proc-type-list) (cdr given-type-list))
+                          #f))))
+          #f))))
+                           
+
 (define type-of-exp
   (lambda (exp env subst args-continuation)
     (cond 
@@ -702,8 +717,6 @@
                                                  ; If same tvar is present in args list, we can perform substitution
                                                  (tvar-type (tvar-id) 
                                                             (begin
-                                                             (write '333)
-                                                             (write (apply-subst-to-type tvar-id subst))
                                                             (poly-type-resolve arg-list arg-types tvar-id result-type subst)))
                                                  (pair-type (p1 p2)
                                                             (let [(p1-type (answer->type (poly-tvar-resolve p1 arg-list arg-types subst)))
@@ -711,9 +724,11 @@
                                                               (my-answer (pair-type p1-type p2-type) subst)))
                                                              
                                                  ; Make this consistent
-                                                 (else (my-answer result-type subst))))
+                                                 (else (if (consistent-type-args arg-list arg-types) 
+                                                           (my-answer result-type subst)
+                                                           (my-answer (bad-type) subst)))))
                                     (else (bad-type)))
-                                  (bad-type))))))
+                                  (my-answer (bad-type) subst))))))
       
       ;(begin-exp (exp1 exp2-list) (type-of-exp-begin exp1 exp2-list env state));;TO DO
       ; 1) Begin returns the value of the last expression, so we return type-of last expression
