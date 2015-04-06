@@ -715,12 +715,17 @@
                                                ; Polymorphism of result type
                                                (cases type result-type
                                                  ; If same tvar is present in args list, we can perform substitution
+                                                 ; Dont need to check type consistency for t-var becuase inference doesnt know anything.
                                                  (tvar-type (tvar-id) 
                                                             (begin
                                                             (poly-type-resolve arg-list arg-types tvar-id result-type subst)))
                                                  (pair-type (p1 p2)
-                                                            (let [(p1-type (answer->type (poly-tvar-resolve p1 arg-list arg-types subst)))
-                                                                  (p2-type (answer->type (poly-tvar-resolve p2 arg-list arg-types subst)))]
+                                                            (let [(p1-type (cases type p1
+                                                                             (tvar-type (id) (answer->type (poly-tvar-resolve p1 arg-list arg-types subst)))
+                                                                             (else p1)))
+                                                                  (p2-type (cases type p2 
+                                                                             (tvar-type (id) (answer->type (poly-tvar-resolve p2 arg-list arg-types subst)))
+                                                                             (else p2)))]
                                                               (my-answer (pair-type p1-type p2-type) subst)))
                                                              
                                                  ; Make this consistent
@@ -864,7 +869,7 @@
                           (result (tvar-type (gensym)))]
                      (extend-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) (car exp1-list) (extend-tenv (car var-list) (proc-type var result) env)))]
           ;;exp-list is not proc
-          (else (extend-tenv (car var-list) (answer->type (type-of-exp (car exp1-list) env subst)) env)))
+          (else (extend-tenv (car var-list) (answer->type (type-of-exp (car exp1-list) env subst '())) env)))
         (cond
           [(proc-exp? (car exp1-list))
                     (let [(var (getNewTvar (proc-exp->var-list (car exp1-list)) subst))
@@ -1017,7 +1022,7 @@
 ;(type-of "proc(x y) newpair (x,y)")
 ;(type-of "proc(x)x");(proc-type (list (tvar-type 'g210790)) (tvar-type 'g210790))
 ;(type-of "proc(x) +(x,1)")
-(type-of "let f = proc(x) +(x,1) in (f true)");bad-type
+;(type-of "let f = proc(x) +(x,1) in (f true)");bad-type
 ;(type-of "let f = proc(x) +(x,1) in (f 2)");int-type
 ;(type-of "let f = proc(x) x in if (f true) then (f 3) else (f 5)");int-type
 ;(type-of "let f = proc(x) x in newpair((f true),(f 8))");(pair-type (bool-type) (int-type))
