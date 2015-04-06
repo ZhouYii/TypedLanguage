@@ -579,10 +579,22 @@
             (tvar-type (id-number)
                        (if (equal? id-number target-id)
                            idx
-                           (match-tvar (cdr var-list target-id (+ 1 idx)))))
+                           (match-tvar (cdr var-list) target-id (+ 1 idx))))
             (else (match-tvar (cdr var-list target-id (+ 1 idx)))))))))
-          
-              
+
+(define poly-tvar-resolve
+  (lambda (tvar args-id-list type-list subst)
+    (cases type tvar
+      (tvar-type (tvar-id) (poly-type-resolve args-id-list type-list tvar-id tvar subst))
+      (else (bad-type)))))
+
+(define poly-type-resolve
+  (lambda (args-id-list type-list tvar-id tval-type subst)
+    (let [(args-idx (match-tvar args-id-list tvar-id 0))]
+      (if (equal? -1 args-idx)
+          (my-answer tval-type subst) ; Cannot find type
+          (begin (write (list-index-of type-list args-idx)) (write '333) (list-index-of type-list args-idx))))))
+  
 (define type-of-exp
   (lambda (exp env subst args-continuation)
     (cond 
@@ -651,19 +663,23 @@
                
                ;; One complexity is because operator expression is not guaranteed to be proc-expression 
                (let* [(arg-types (map (lambda (exp) (type-of-exp exp env subst '())) rand-list))]
-                 (cases answer (type-of-exp rator env subst rand-list)
+                 (cases answer (type-of-exp rator env subst rand-list) ; Reduce operator expression to proc type
                    (my-answer (rator-proc subst)
                               ; Assert the rator is a proc (otherwise bad type) and evaluate the result-type
                               (if (type? rator-proc)
                                   (cases type rator-proc
                                     (proc-type (arg-list result-type) 
+                                               ; Polymorphism of result type
                                                (cases type result-type
                                                  ; If same tvar is present in args list, we can perform substitution
                                                  (tvar-type (tvar-id) 
-                                                            (let [(args-idx (match-tvar arg-list tvar-id 0))]
-                                                              (if (equal? -1 args-idx)
-                                                                  result-type ; Cannot find type
-                                                                  (list-index-of arg-types args-idx))))
+                                                            (poly-type-resolve arg-list arg-types tvar-id result-type subst))
+                                                 (pair-type (p1 p2)
+                                                            (let [(p1-type (answer->type (poly-tvar-resolve p1 arg-list arg-types subst)))
+                                                                  (p2-type (answer->type (poly-tvar-resolve p2 arg-list arg-types subst)))]
+                                                              (my-answer (pair-type p1-type p2-type) subst)))
+                                                             
+                                                 ; Make this consistent
                                                  (else (my-answer result-type subst))))
                                     (else (bad-type)))
                                   (bad-type))))))
@@ -817,13 +833,11 @@
 (define begin-list
   (lambda (arg-list env subst)
           (if(null? (cdr arg-list))
-             (type-of-exp (car arg-list) env subst)
-             (let [(ans (type-of-exp (car arg-list) env subst))]
-              (cond
-               [(bad-type? (answer->type ans)) (an-answer (bad-type) subst)]
-               [(answer? ans) 
-                     (begin-list (cdr arg-list) env (answer->sub ans))]
-               [else (an-answer (bad-type) subst)])))))
+             (type-of-exp (car arg-list) env subst '())
+             (cond
+               [(bad-type? (answer->type (type-of-exp (car arg-list) env subst '()))) (my-answer (bad-type) subst)]
+               [else (begin-list (cdr arg-list) env subst)]))))
+             
 
 (define add-env-proc
   (lambda (var-list exp1-list env state)
@@ -932,7 +946,6 @@
 ;(type-of "proc (x) +(x,1)");(proc-type (list (int-type)) (int-type))
 
 ;(type-of "begin if 5 then 5 else 7; 5 end");bad type
-;(type-of "begin if =(1,2) then true else 7; true end");bad type
 ;(type-of "begin if =(1,2) then 5 else 7; 5 end");int type
 ;(type-of "begin if =(1,2) then 5 else 7; true end");bool type
 
