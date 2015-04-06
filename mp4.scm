@@ -73,6 +73,7 @@
       (my-answer(ty sub) ty)
       (else ans))))
 
+
 (define answer->sub
   (lambda (ans)
     (cases answer ans
@@ -124,10 +125,29 @@
    (type type?)
    (tenv type-environment?)))
 
-(define empty-tenv empty-tenv-record)
-(define extend-tenv extended-tenv-record)
+;(define extend-tenv extended-tenv-record)
 
-(define apply-tenv 
+(define empty-tenv
+  (lambda () '()))
+ 
+(define extend-tenv
+  (lambda (key value env)
+      (cond ((null? env) (list (list key value)))
+            ((equal? (caar env) key) (append (list (list key value)) (cdr env)))
+            (else (append (list (car env)) (extend-tenv key value (cdr env) ))))))
+ 
+; seek only
+(define apply-helper
+  (lambda (env key)
+    (cond ((null? env) (bad-type))
+          ((equal? key (caar env)) (cadar env))
+          (else (apply-helper (cdr env) key)))))
+ 
+(define apply-tenv
+  (lambda (key env)
+  (apply-helper env key)))
+
+(define apply-ttenv 
   (lambda (sym tenv)
     (cases type-environment tenv
       (empty-tenv-record ()
@@ -194,6 +214,24 @@
     (cases type ty
       (proc-type(t1 t2) #t)
       (else #f))))
+
+(define proc-exp?
+  (lambda (ty)
+    (cases expression ty
+      (proc-exp(t1 t2) #t)
+      (else #f))))
+
+(define proc-exp->var-list
+  (lambda (exp)
+    (cases expression exp
+      (proc-exp(exp-list t2) exp-list)
+      (else #f))))
+
+(define proc-exp->body
+  (lambda (exp)
+    (cases expression exp
+      (proc-exp(exp-list body) body)
+       (else #f))))
 
 (define bad-type?
   (lambda (ty)
@@ -602,8 +640,11 @@
                (type-of-exp exp2
                         (add-env var-list exp1-list env subst) subst '()))
       
-      ;(letrec-exp (var-list exp1-list body)(type-of-exp-letrec var-list exp1-list body env state) );;;TO DO
-      
+      (letrec-exp (var-list exp1-list body)
+                 (let* [(new-env (add-env-letrec var-list exp1-list env subst))
+                        (new-env (resolve-letrec var-list new-env subst))]
+                   (type-of-exp body new-env subst '())))
+                 
       (proc-exp (var-list exp)
                 (let*[(var-list-type (getNewTvar var-list subst))
                       (env (add-env var-list var-list-type env subst))]
@@ -790,6 +831,33 @@
           (extend-tenv (car var-list) newtype env)
           (add-env (cdr var-list) (cdr exp1-list) (extend-tenv (car var-list) newtype env) subst)))))
 
+(define add-env-letrec
+  (lambda (var-list exp1-list env subst)
+    ;;(let [(ty (answer->type (type-of-exp (car exp1-list) env subst)))]
+    (if (null? (cdr var-list))
+        (cond
+          [(proc-exp? (car exp1-list))
+                    (let [(var (getNewTvar (proc-exp->var-list (car exp1-list) ) subst))
+                          (result (tvar-type (gensym)))]
+                     (extend-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) (car exp1-list) (extend-tenv (car var-list) (proc-type var result) env)))]
+          ;;exp-list is not proc
+          (else (extend-tenv (car var-list) (answer->type (type-of-exp (car exp1-list) env subst)) env)))
+        (cond
+          [(proc-exp? (car exp1-list))
+                    (let [(var (getNewTvar (proc-exp->var-list (car exp1-list)) subst))
+                          (result (gensym))]
+                    (add-env-letrec (cdr var-list) (cdr exp1-list)(extend-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) (car exp1-list) (extend-tenv (car var-list) (proc-type var result) env))))]
+          (else (add-env-letrec (cdr var-list) (cdr exp1-list) (extend-tenv (car var-list)  (answer->type (type-of-exp (car exp1-list) env subst)) env) ))))))
+
+
+(define resolve-letrec
+  (lambda (var-list env subst)
+    (let ([newtype (answer->type (type-of-exp (apply-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) env) env subst '()))])
+      (if (null? (cdr var-list)) 
+          (extend-tenv (car var-list) newtype env)
+          (resolve-letrec (cdr var-list) (extend-tenv (car var-list) newtype env))))))
+
+
 
 (define get-arg-type-list
   (lambda (arg-list subst)
@@ -803,10 +871,11 @@
       (map map-func exp1-list exp2-list))))
 
 (define many-to-one-to-one-map
-  (lambda (map-func exp1-list exp2 exp3) 
+  (lambda (map-func exp1-list exp2 exp3 exp4) 
     (let [(exp2-list (replicate exp2 (length exp1-list)))
-          (exp3-list (replicate exp3 (length exp1-list)))]
-      (map map-func exp1-list exp2-list exp3-list))))
+          (exp3-list (replicate exp3 (length exp1-list)))
+          (exp4-list (replicate exp4 (length exp1-list)))]
+      (map map-func exp1-list exp2-list exp3-list exp4-list))))
 
 (define list-unifier
   (lambda (ty1-list ty2-list subst exp)
@@ -875,6 +944,8 @@
 (trace no-occurrence?)
 (trace begin-list)
 (trace an-answer)
+(trace resolve-letrec)
+(trace add-env-letrec)
 
 
 ;;; Unit test
@@ -916,7 +987,7 @@
 ;(asserteq "test16" (type-of "if =(1, 2) then 5 else 4") (int-type))
 
 ;;PASSED:
-;(type-of "let f = proc (x) +(x,1) in (f 2)")
+;(type-of "let f = proc (x) +(x,1) in (f 2)");int-type
 ;(type-of "- (1,3,true,2)");bad-type
 ;(type-of "> (false, 9)");bad-type
 ;(type-of "= (true, ture)");bad-type
@@ -924,7 +995,7 @@
 ;(type-of "proc(x)x");proc-type (#(struct:tvar-type t0)) #(struct:tvar-type t0))
 ;(type-of "proc(x y) newpair (x,y)")
 ;(type-of "proc(x)x");(proc-type (list (tvar-type 'g210790)) (tvar-type 'g210790))
-;(type-of "proc(x) +(x,true)")
+;(type-of "proc(x) +(x,1)")
 ;(type-of "let f = proc(x) +(x,1) in (f true)");bad-type
 ;(type-of "let f = proc(x) +(x,1) in (f 2)");int-type
 ;(type-of "let f = proc(x) x in if (f true) then (f 3) else (f 5)");int-type
@@ -936,8 +1007,10 @@
 ;(type-of "begin if =(1,2) then 5 else 7; 5 end");int type
 ;(type-of "begin if =(1,2) then 5 else 7; true end");bool type
 
-;;FAILED
-(type-of "(proc(y) if (y true) then (y 4) else 0 proc (x) x)")
+;(type-of "(proc(y) if (y true) then (y 4) else 0 proc (x) x)")
 ;(type-of "(proc(y) if (y true) then (y 4) else 0 proc (x) x)")
 ;(type-of "proc(y) if (y true) then (y 4) else 0")
+
+;;Letrec
+(type-of "letrec ill = proc(x) (ill x) in (ill 5)")
 
