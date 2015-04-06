@@ -259,7 +259,9 @@
                  (string->symbol
                   (string-append
                    "tvar"
-                   (number->string serial-number))))
+                   (if (number? serial-number)
+                       (number->string serial-number)
+                       (symbol->string serial-number)))))
       (else 'ty))))
 
 ;;;;;;;;;;;;;;;; Unit substitution ;;;;;;;;;;;;;;;;
@@ -375,11 +377,11 @@
         ((tvar-type? ty1)
          (if (no-occurrence? ty1 ty2)
              (extend-subst subst ty1 ty2)
-             (report-no-occurrence-violation ty1 ty2 exp)))
+             (bad-type)))
         ((tvar-type? ty2)
          (if (no-occurrence? ty2 ty1)
              (extend-subst subst ty2 ty1)
-             (report-no-occurrence-violation ty2 ty1 exp)))
+             (bad-type)))
         ((and (proc-type? ty1) (proc-type? ty2))
          (let ((subst (list-unifier
                        (proc-type->arg-type ty1)
@@ -622,17 +624,21 @@
 
 (define consistent-type-args
   (lambda (proc-type-list given-type-list)
-    (let [(t1 (car proc-type-list))
-          (t2 (car given-type-list))]
-      (if (equal? (length proc-type-list) (length given-type-list))
-          (if (null? proc-type-list)
-              #t
-              (cases type t1
-                (tvar-type (serial) (consistent-type-args (cdr proc-type-list) (cdr given-type-list)))
-                (else (if (equal? t1 t2)
-                          (consistent-type-args (cdr proc-type-list) (cdr given-type-list))
-                          #f))))
-          #f))))
+    (if (and (null? proc-type-list) (null? given-type-list))
+        
+        (let [(t1 (car proc-type-list))
+              (t2 (car given-type-list))]
+          (if (equal? (length proc-type-list) (length given-type-list))
+              (if (null? proc-type-list)
+                  #t
+                  (cases type t1
+                    (tvar-type (serial) (consistent-type-args (cdr proc-type-list) (cdr given-type-list)))
+                    (else (if (equal? t1 t2)
+                              (consistent-type-args (cdr proc-type-list) (cdr given-type-list))
+                              #f))))
+              #f))
+        #f)))
+  
                            
 
 (define type-of-exp
@@ -732,7 +738,7 @@
                                                  (else (if (consistent-type-args arg-list arg-types) 
                                                            (my-answer result-type subst)
                                                            (my-answer (bad-type) subst)))))
-                                    (else (bad-type)))
+                                    (else (my-answer (bad-type) subst)))
                                   (my-answer (bad-type) subst))))))
       
       ;(begin-exp (exp1 exp2-list) (type-of-exp-begin exp1 exp2-list env state));;TO DO
@@ -756,7 +762,7 @@
                                          (cases answer (type-of-exp exp3 env subst '())
                                            (my-answer (ty3 subst)
                                                       (let ((subst (unifier ty2 ty3 subst exp)))
-                                                        (an-answer ty2 subst))))))))))
+                                                        (an-answer ty3 subst))))))))))
                
                ;(my-answer (ty1 subst1)
                ;           (let ((subst (unifier ty1 (bool-type) subst
@@ -951,27 +957,6 @@
           result))))
 
 ;=====================================Test========================================
-(trace type-of)
-(trace type-of-exp)
-(trace add-env)
-(trace scan&parse)
-(trace getNewTvar)
-(trace fold-left)
-(trace typeCheck)
-(trace andBool)
-(trace apply-tenv)
-(trace unifier)
-(trace apply-subst-to-type)
-(trace  proc-type->arg-type)
-(trace  proc-type->result-type)
-(trace list-unifier)
-(trace many-to-one-map)
-(trace extend-multi-env)
-(trace no-occurrence?)
-(trace begin-list)
-(trace an-answer)
-(trace resolve-letrec)
-(trace add-env-letrec)
 
 
 ;;; Unit test
