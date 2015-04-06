@@ -623,14 +623,20 @@
           (my-answer tval-type subst) ; Cannot find type
           (begin (list-index-of type-list args-idx))))))
 
+(define extract-from-answer
+  (lambda (var)
+    (if (answer? var)
+        (answer->type var)
+        var)))
+
 (define consistent-type-args
   (lambda (proc-type-list given-type-list)
     (cond ((and (null? proc-type-list) (null? given-type-list)) #t)
           ((or (null? proc-type-list) (null? given-type-list)) #f) 
           (else 
            ;; This is the general case 
-           (let [(t1 (car proc-type-list))
-                 (t2 (car given-type-list))]
+           (let [(t1 (extract-from-answer (car proc-type-list)))
+                 (t2 (extract-from-answer (car given-type-list)))]
              (if (equal? (length proc-type-list) (length given-type-list))
                  (if (null? proc-type-list)
                      #t
@@ -1029,25 +1035,3 @@
 ;(type-of "letrec ill = proc(x) (ill x) in (ill 5)")
 ;
 (provide type-of)
-
-(trace type-of)
-(trace type-of-exp)
-(trace add-env)
-(trace scan&parse)
-(trace getNewTvar)
-(trace fold-left)
-(trace typeCheck)
-(trace andBool)
-(trace apply-tenv)
-(trace unifier)
-(trace apply-subst-to-type)
-(trace  proc-type->arg-type)
-(trace  proc-type->result-type)
-(trace list-unifier)
-(trace many-to-one-map)
-(trace extend-multi-env)
-(trace no-occurrence?)
-(trace begin-list)
-(trace an-answer)
-(trace resolve-letrec)
-(trace add-env-letrec)
