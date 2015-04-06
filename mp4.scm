@@ -670,8 +670,12 @@
       
       (letrec-exp (var-list exp1-list body)
                  (let* [(new-env (add-env-letrec var-list exp1-list env subst))
-                        (new-env (resolve-letrec var-list new-env subst))]
-                   (type-of-exp body new-env subst '())))
+                        (new-env (resolve-letrec var-list new-env subst))
+                        (new-subst (resolve-letrec-sub var-list new-env subst))
+                        ;(write '444444444)
+                        (ans (type-of-exp body new-env new-subst '()))]
+                  ; (write '33333333333333333333)
+                   (an-answer (apply-subst-to-type (answer->type ans) (answer->sub ans)) new-subst)))
                  
       (proc-exp (var-list exp)
                 (let*[(var-list-type (getNewTvar var-list subst))
@@ -755,9 +759,10 @@
       ;    (since we are not using store and environment bindings from let only appy to the let-body)
       ; So, we can return type-of last expression with the input environment 
       (begin-exp (exp1 exp2-list) 
+                (let [(ans (type-of-exp exp1 env subst '()))]
                  (if (null? exp2-list)
-                     (type-of-exp exp1 env subst '())
-                     (begin-list (append (list exp1) exp2-list) env subst)))
+                     (apply-subst-to-type (answer->type ans) (answer->sub ans))
+                     (begin-list (append (list exp1) exp2-list) env subst))))
       
       (if-exp(exp1 exp2 exp3)
              (cases answer (type-of-exp exp1 env subst '())
@@ -894,11 +899,26 @@
 
 (define resolve-letrec
   (lambda (var-list env subst)
-    (let ([newtype (answer->type (type-of-exp (apply-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) env) env subst '()))])
+    (let ([newtype  (apply-subst-to-type(answer->type(type-of-exp (apply-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) env) env subst '()))subst)])
       (if (null? (cdr var-list)) 
           (extend-tenv (car var-list) newtype env)
           (resolve-letrec (cdr var-list) (extend-tenv (car var-list) newtype env) subst)))))
 
+(define resolve-letrec-sub
+  (lambda (var-list env subst)
+    (let ([newsub (answer->sub (type-of-exp (apply-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) env) env subst '()))]
+          [newtype  (apply-subst-to-type(answer->type(type-of-exp (apply-tenv (string->symbol (string-append (symbol->string (car var-list)) "1")) env) env subst '()))subst)])
+      (if (null? (cdr var-list)) 
+          (cond 
+            [(null? newsub) subst]
+            [else newsub])
+            ;[else (write '11) (extend-subst (car subst) (car newsub) (cdr newsub))])
+          (cond
+            [(null? newsub) (resolve-letrec-sub (cdr var-list) (extend-tenv (car var-list) newtype env) subst)]
+            [(null? subst) (resolve-letrec-sub (cdr var-list) (extend-tenv (car var-list) newtype env) newsub)]
+            [else (extend-subst (resolve-letrec-sub (cdr var-list) (extend-tenv (car var-list) newtype env) subst) (car newsub) (cdr newsub) )])))))
+
+   
 
 
 (define get-arg-type-list
@@ -929,28 +949,29 @@
   
 (define begin-list
   (lambda (arg-list env subst)
-          (if(null? (cdr arg-list))
-             (type-of-exp (car arg-list) env subst '())
-             (cond
-               [(bad-type? (answer->type (type-of-exp (car arg-list) env subst '()))) (my-answer (bad-type) subst)]
-               [else (begin-list (cdr arg-list) env subst)]))))
-             
-
-(define add-env-proc
-  (lambda (var-list exp1-list env state)
-    (if (null? (cdr var-list))
-        (cond 
-          [(expression? (car exp1-list)) 
-           (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state '()) env)]
-          [else (extend-tenv (car var-list) (type-of-exp(car exp1-list) env state '()) env)])
-        (cond 
-          [(expression? (car exp1-list)) 
-           (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state '()) (add-env-proc (cdr var-list) (cdr exp1-list) env state))]
-          [else (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state '()) (add-env-proc (cdr var-list) (cdr exp1-list) env state))]))))
-
-;;================Two cases to resolve letrec and curry==============
-(define apply-procedure
-  (lambda (proc1 arg state)
+    (let [(ans (type-of-exp (car arg-list) env subst '()))]
+      (if(null? (cdr arg-list))
+         (apply-subst-to-type (answer->type ans) (answer->sub ans))
+         (cond
+           [(bad-type? (answer->type (type-of-exp (car arg-list) env subst '()))) (my-answer (bad-type) subst)]
+           [else (begin-list (cdr arg-list) env (answer->sub (type-of-exp (car arg-list) env subst '())))])))))
+  
+  
+  (define add-env-proc
+    (lambda (var-list exp1-list env state)
+      (if (null? (cdr var-list))
+          (cond 
+            [(expression? (car exp1-list)) 
+             (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state '()) env)]
+            [else (extend-tenv (car var-list) (type-of-exp(car exp1-list) env state '()) env)])
+          (cond 
+            [(expression? (car exp1-list)) 
+             (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state '()) (add-env-proc (cdr var-list) (cdr exp1-list) env state))]
+            [else (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state '()) (add-env-proc (cdr var-list) (cdr exp1-list) env state))]))))
+  
+  ;;================Two cases to resolve letrec and curry==============
+  (define apply-procedure
+    (lambda (proc1 arg state)
     (cases proc proc1
       (procedure (var body saved-env)
                  (let ((new-env (add-env-proc var arg saved-env state)))
