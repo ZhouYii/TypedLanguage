@@ -1,4 +1,5 @@
 #lang racket
+;partner is sliu19
 (require "types-from-staff.scm")
 (require eopl)
 (require trace/calltrace-lib)
@@ -1023,3 +1024,5 @@
 
 ;;Letrec
 ;(type-of "letrec ill = proc(x) (ill x) in (ill 5)")
+;
+(provide type-of)
