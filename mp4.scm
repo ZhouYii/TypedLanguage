@@ -600,7 +600,7 @@
       
       (let-exp (var-list exp1-list exp2)
                (type-of-exp exp2
-                        (add-env var-list exp1-list env subst) subst))
+                        (add-env var-list exp1-list env subst) subst '()))
       
       ;(letrec-exp (var-list exp1-list body)(type-of-exp-letrec var-list exp1-list body env state) );;;TO DO
       
@@ -664,7 +664,7 @@
                                                               (if (equal? -1 args-idx)
                                                                   result-type ; Cannot find type
                                                                   (list-index-of arg-types args-idx))))
-                                                 (else result-type)))
+                                                 (else (my-answer result-type subst))))
                                     (else (bad-type)))
                                   (bad-type))))))
       
@@ -675,7 +675,7 @@
       ; So, we can return type-of last expression with the input environment 
       (begin-exp (exp1 exp2-list) 
                  (if (null? exp2-list)
-                     (type-of-exp exp1 env subst)
+                     (type-of-exp exp1 env subst '())
                      (begin-list (append (list exp1) exp2-list) env subst)))
       
       (if-exp(exp1 exp2 exp3)
@@ -704,37 +704,37 @@
       
       ;;For now only consider first elemnt of exp2
       (arith-exp(arith-op exp1 exp2)
-                (let* [(ty1 (answer->type (type-of-exp exp1 env subst)))
-                      (ty2-list ( map answer->type (many-to-one-to-one-map type-of-exp exp2 env subst)))
+                (let* [(ty1 (answer->type (type-of-exp exp1 env subst '())))
+                      (ty2-list ( map answer->type (many-to-one-to-one-map type-of-exp exp2 env subst '())))
                       (subst (unifier ty1 (int-type) subst exp1))
                       (subst (list-unifier ty2-list (replicate (int-type) (length ty2-list))subst exp2))]
                    (an-answer (apply-subst-to-type ty1 subst)subst)))
       
       (compare-exp(compare-op exp1 exp2)
-                  (let* [(ty1 (answer->type (type-of-exp exp1 env subst)))
-                         (ty2 (answer->type (type-of-exp exp2 env subst)))
+                  (let* [(ty1 (answer->type (type-of-exp exp1 env subst '())))
+                         (ty2 (answer->type (type-of-exp exp2 env subst '())))
                          (subst (unifier ty1 ty2 subst exp1))]
                     (an-answer (bool-type) subst)))
       
       (compare-equ-exp(exp1 exp2)
-                      (let* [(ty1 (answer->type (type-of-exp exp1 env subst)))
-                             (ty2 (answer->type (type-of-exp exp2 env subst)))
+                      (let* [(ty1 (answer->type (type-of-exp exp1 env subst '())))
+                             (ty2 (answer->type (type-of-exp exp2 env subst '())))
                              (subst (unifier ty1 ty2 subst exp1))]
                         (an-answer (bool-type) subst)))
       
       (newpair-exp (exp1 exp2) 
-                   (let [(ty1 (type-of-exp exp1 env subst))
-                         (ty2 (type-of-exp exp2 env subst))]
+                   (let [(ty1 (type-of-exp exp1 env subst '()))
+                         (ty2 (type-of-exp exp2 env subst '()))]
                      (an-answer (pair-type (answer->type ty1) (answer->type ty2)) subst)))
       
       (first-exp(exp) 
-                (let [(ty1 (answer->type (type-of-exp exp env subst)))]
+                (let [(ty1 (answer->type (type-of-exp exp env subst '())))]
                  (cases type ty1
                    (pair-type(first second) (an-answer first subst))
                    (else (an-answer (bad-type) subst)))))
       
       (second-exp (exp)  
-                    (let [(ty1 (answer->type (type-of-exp exp env subst)))]
+                    (let [(ty1 (answer->type (type-of-exp exp env subst '())))]
                  (cases type ty1
                    (pair-type(first second) (an-answer second subst))
                    (else (an-answer (bad-type) subst)))))
@@ -817,9 +817,9 @@
 (define begin-list
   (lambda (arg-list env subst)
           (if(null? (cdr arg-list))
-             (type-of-exp (car arg-list) env subst)
+             (type-of-exp (car arg-list) env subst '())
              (cond
-               [(bad-type? (answer->type (type-of-exp (car arg-list) env subst))) (my-answer (bad-type) subst)]
+               [(bad-type? (answer->type (type-of-exp (car arg-list) env subst '()))) (my-answer (bad-type) subst)]
                [else (begin-list (cdr arg-list) env subst)]))))
              
 
@@ -828,12 +828,12 @@
     (if (null? (cdr var-list))
         (cond 
           [(expression? (car exp1-list)) 
-           (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state) env)]
-          [else (extend-tenv (car var-list) (type-of-exp(car exp1-list) env state) env)])
+           (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state '()) env)]
+          [else (extend-tenv (car var-list) (type-of-exp(car exp1-list) env state '()) env)])
         (cond 
           [(expression? (car exp1-list)) 
-           (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state) (add-env-proc (cdr var-list) (cdr exp1-list) env state))]
-          [else (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state) (add-env-proc (cdr var-list) (cdr exp1-list) env state))]))))
+           (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state '()) (add-env-proc (cdr var-list) (cdr exp1-list) env state))]
+          [else (extend-tenv (car var-list) (type-of-exp (car exp1-list) env state '()) (add-env-proc (cdr var-list) (cdr exp1-list) env state))]))))
 
 ;;================Two cases to resolve letrec and curry==============
 (define apply-procedure
@@ -841,7 +841,7 @@
     (cases proc proc1
       (procedure (var body saved-env)
                  (let ((new-env (add-env-proc var arg saved-env state)))
-                   (type-of-exp body new-env state))))))
+                   (type-of-exp body new-env state '()))))))
 
 
 
@@ -937,3 +937,4 @@
 (type-of "(proc(y) if (y true) then (y 4) else 0 proc (x) x)")
 ;(type-of "(proc(y) if (y true) then (y 4) else 0 proc (x) x)")
 ;(type-of "proc(y) if (y true) then (y 4) else 0")
+
