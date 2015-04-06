@@ -625,20 +625,21 @@
 
 (define consistent-type-args
   (lambda (proc-type-list given-type-list)
-    (if (and (null? proc-type-list) (null? given-type-list))
-        
-        (let [(t1 (car proc-type-list))
-              (t2 (car given-type-list))]
-          (if (equal? (length proc-type-list) (length given-type-list))
-              (if (null? proc-type-list)
-                  #t
-                  (cases type t1
-                    (tvar-type (serial) (consistent-type-args (cdr proc-type-list) (cdr given-type-list)))
-                    (else (if (equal? t1 t2)
-                              (consistent-type-args (cdr proc-type-list) (cdr given-type-list))
-                              #f))))
-              #f))
-        #f)))
+    (cond ((and (null? proc-type-list) (null? given-type-list)) #t)
+          ((or (null? proc-type-list) (null? given-type-list)) #f) 
+          (else 
+           ;; This is the general case 
+           (let [(t1 (car proc-type-list))
+                 (t2 (car given-type-list))]
+             (if (equal? (length proc-type-list) (length given-type-list))
+                 (if (null? proc-type-list)
+                     #t
+                     (cases type t1
+                       (tvar-type (serial) (consistent-type-args (cdr proc-type-list) (cdr given-type-list)))
+                       (else (if (equal? t1 t2)
+                                 (consistent-type-args (cdr proc-type-list) (cdr given-type-list))
+                                 #f))))
+                 #f))))))
   
                            
 
@@ -914,10 +915,12 @@
 
 (define list-unifier
   (lambda (ty1-list ty2-list subst exp)
-    (if (null?(cdr ty1-list))
-        (unifier (car ty1-list) (car ty2-list) subst exp)
-        (list-unifier (cdr ty1-list) (cdr ty2-list) (unifier (car ty1-list) (car ty2-list) subst exp) exp))))
-
+    (if (or (null? ty1-list) (null? ty2-list))
+        '()
+        (if (null?(cdr ty1-list))
+            (unifier (car ty1-list) (car ty2-list) subst exp)
+            (list-unifier (cdr ty1-list) (cdr ty2-list) (unifier (car ty1-list) (car ty2-list) subst exp) exp)))))
+  
 (define begin-list
   (lambda (arg-list env subst)
           (if(null? (cdr arg-list))
@@ -1026,3 +1029,25 @@
 ;(type-of "letrec ill = proc(x) (ill x) in (ill 5)")
 ;
 (provide type-of)
+
+(trace type-of)
+(trace type-of-exp)
+(trace add-env)
+(trace scan&parse)
+(trace getNewTvar)
+(trace fold-left)
+(trace typeCheck)
+(trace andBool)
+(trace apply-tenv)
+(trace unifier)
+(trace apply-subst-to-type)
+(trace  proc-type->arg-type)
+(trace  proc-type->result-type)
+(trace list-unifier)
+(trace many-to-one-map)
+(trace extend-multi-env)
+(trace no-occurrence?)
+(trace begin-list)
+(trace an-answer)
+(trace resolve-letrec)
+(trace add-env-letrec)
